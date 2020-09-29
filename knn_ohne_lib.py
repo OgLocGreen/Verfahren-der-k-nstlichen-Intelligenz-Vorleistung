@@ -1,233 +1,217 @@
-
 import numpy
 # scipy.special for the sigmoid function expit()
 import scipy
-# library for plotting arrays
 import matplotlib.pyplot
-# ensure the plots are inside this notebook, not an external window
 import imageio
 import cv2
 import os
 import glob
 import csv
 import time
-
 import scipy
 from scipy import special
+import math
 
-# neural network class definition
-class neuralNetwork:
+# Klasse KünstlichesNeuronalesNetz Definieren
+class NeuronalesNetz:
     
-    
-    # initialise the neural network
-    def __init__(self, inputnodes, hiddennodes, outputnodes, learningrate):
-        # set number of nodes in each input, hidden, output layer
-        self.inodes = inputnodes
-        self.hnodes = hiddennodes
-        self.onodes = outputnodes
-        
-        # link weight matrices, wih and who
-        # weights inside the arrays are w_i_j, where link is from node i to node j in the next layer
+    # Initalisierung des Netzes Vornehmmen mit folgenden Argumenten 
+    def __init__(self, EingangsNeuronen, VersteckteNeuronen, AusgangsNeuronenen, Lernrate):
+        # Übergeben der Arumente als Parameter
+        self.eNeuronen = EingangsNeuronen
+        self.vNeuronen = VersteckteNeuronen
+        self.aNeuronen = AusgangsNeuronenen
+        self.vBias = VersteckteNeuronen
+        self.aBias = AusgangsNeuronenen
+        self.lr = Lernrate
+
+        # Gewichtewichtsmatix anlegen, für wih, who
+        # Gewichte in den Arrays, es ist immer von Neuron i zu Neuron j der nächsten Schicht
         # w11 w21
-        # w12 w22 etc 
-        self.wih = numpy.random.normal(0.0, pow(self.inodes, -0.5), (self.hnodes, self.inodes))
-        self.who = numpy.random.normal(0.0, pow(self.hnodes, -0.5), (self.onodes, self.hnodes))
+        # w12 w22 usw. 
+        # Normalverteilung um 0 mit einer Standardabweichung von 0.5 am schluss ist die größe der Arrays
+        self.gewichteVersteckte = numpy.random.normal(0.0, 0.005, (self.vNeuronen, self.eNeuronen))
+        self.gewichteAusgang = numpy.random.normal(0.0, 0.005, (self.aNeuronen, self.vNeuronen))        
+    	self.vBias = numpy.random.normal(0.0, 0.005,  self.vNeuronen)
+    	self.aBias = numpy.random.normal(0.0, 0.005,  self.AusgangsNeuronenen)
 
-        # learning rate
-        self.lr = learningrate
+
+        # Aktiverungsfunktion ist die Sigmoidfunktion 
+        # leider konnte die in der Vorlesung besproche 1/(1+np.exp(-x)) Formel nicht verwendet werden
+        # da es sonst zu einem Overflow kommt weshalb eine Sigmoid aus Scipy importiert wurde
+        # scipy.special.expit(x) =  1/(1+np.exp(-X))
+        self.aktivierungs_funktion = lambda x: scipy.special.expit(x)
+        pass
+
+    # Trainieren des KünstlichenNeuornalenNetzes
+    def training(self, Eingabe_liste, Ziel_list):
+
+        # Vorwärtsdurchgang
+
+        # Eingabe in 2-Dimensionale Arrays formatieren
+        eingaben = numpy.array(Eingabe_liste, ndmin=2).T
+        ziele = numpy.array(Ziel_list, ndmin=2).T
         
-        # activation function is the sigmoid function
-        self.activation_function = lambda x: scipy.special.expit(x)
-                                            ## zu 1/(1+np.exp(-X)) ändern wenns funktioniert
+        # berechnen der Signale von Eingangs- zur Verstecktenschicht
+        # Numpy.dot() ist das Punktprodukt der beiden Arrays
+        versteckte_eingang = numpy.dot(self.gewichteVersteckte, eingaben)
+        versteckte_eingang_2 = numpy.dot(self.vBias, versteckte_eingang)
+        # berechnen der Signale von Versteckten-eingang zum Versteckten-ausgang
+        versteckte_ausgang = self.aktivierungs_funktion(versteckte_eingang_2)
         
+        # berechnen der Signale von Versteckterschichtausgang zu Ausgabeschichteingang
+        ausgang_eingang = numpy.dot(self.gewichteAusgang, versteckte_ausgang)
+        ausgang_eingang_2 = numpy.dot(self.aBias, ausgang_eingang)
+
+        # calculate the signals emerging from final output layer
+        ausgang_ausgang = self.aktivierungs_funktion(ausgang_eingang_2)
+        
+        #Berechnen der Fehler
+
+        # Fehler der AusgangsSchicht berechnen (ziel - wirklichesErgebniss)
+        ausgang_fehler = ziele - ausgang_ausgang
+        # Anteiligen Fehler der VerstecktenSchicht berechnen 
+        versteckte_fehler = numpy.dot(self.gewichteAusgang.T, ausgang_fehler) 
+        
+        # Anpassen der Gewicht je nach Fehler
+
+        # Anpassen der Gechte der Ausgangsschicht
+        self.gewichteAusgang += self.lr * numpy.dot((ausgang_fehler * ausgang_ausgang * (1.0 - ausgang_ausgang)), numpy.transpose(versteckte_ausgang))
+        self.aBias += self.lr * numpy.dot((ausgang_fehler * ausgang_ausgang * (1.0 - ausgang_ausgang)), numpy.transpose(versteckte_ausgang))
+        
+        # Anpassen der Gewichte der VerstecktenSchicht
+        self.gewichteVersteckte += self.lr * numpy.dot((versteckte_fehler * versteckte_ausgang * (1.0 - versteckte_ausgang)), numpy.transpose(eingaben))
+        self.vBias += self.lr * numpy.dot((versteckte_fehler * versteckte_ausgang * (1.0 - versteckte_ausgang)), numpy.transpose(eingaben))
         pass
 
     
-    # train the neural network
-    def train(self, inputs_list, targets_list):
-        # convert inputs list to 2d array
-        inputs = numpy.array(inputs_list, ndmin=2).T
-        targets = numpy.array(targets_list, ndmin=2).T
-        
-        # calculate signals into hidden layer
-        hidden_inputs = numpy.dot(self.wih, inputs)
-        # calculate the signals emerging from hidden layer
-        hidden_outputs = self.activation_function(hidden_inputs)
-        
-        # calculate signals into final output layer
-        final_inputs = numpy.dot(self.who, hidden_outputs)
-        # calculate the signals emerging from final output layer
-        final_outputs = self.activation_function(final_inputs)
-        
-        # output layer error is the (target - actual)
-        output_errors = targets - final_outputs
-        # hidden layer error is the output_errors, split by weights, recombined at hidden nodes
-        hidden_errors = numpy.dot(self.who.T, output_errors) 
-        
-        # update the weights for the links between the hidden and output layers
-        self.who += self.lr * numpy.dot((output_errors * final_outputs * (1.0 - final_outputs)), numpy.transpose(hidden_outputs))
-        
-        # update the weights for the links between the input and hidden layers
-        self.wih += self.lr * numpy.dot((hidden_errors * hidden_outputs * (1.0 - hidden_outputs)), numpy.transpose(inputs))
-        
-        pass
+    # Testen des KünstlichenNeuronalenNetzes
+    def testen(self, Eingabe_liste):
+        # Eingabe in 2-Dimensionale Arrays formatieren
+        eingaben = numpy.array(Eingabe_liste, ndmin=2).T
 
-    
-    # query the neural network
-    def query(self, inputs_list):
-        # convert inputs list to 2d array
-        inputs = numpy.array(inputs_list, ndmin=2).T
+        # berechnen der Signale von Eingangs- zur Verstecktenschicht
+        # Numpy.dot() ist das Punktprodukt der beiden Arrays
+        versteckte_eingang = numpy.dot(self.gewichteVersteckte, eingaben)
+        # berechnen der Signale von Versteckten-eingang zum Versteckten-ausgang
+        versteckte_ausgang = self.aktivierungs_funktion(versteckte_eingang)
         
-        # calculate signals into hidden layer
-        hidden_inputs = numpy.dot(self.wih, inputs)
-        # calculate the signals emerging from hidden layer
-        hidden_outputs = self.activation_function(hidden_inputs)
-        
-        # calculate signals into final output layer
-        final_inputs = numpy.dot(self.who, hidden_outputs)
+        # berechnen der Signale von Versteckterschichtausgang zu Ausgabeschichteingang
+        ausgang_eingang = numpy.dot(self.gewichteAusgang, versteckte_ausgang)
         # calculate the signals emerging from final output layer
-        final_outputs = self.activation_function(final_inputs)
-        
-        return final_outputs
+        ausgang_ausgang = self.aktivierungs_funktion(ausgang_eingang)
+
+        return ausgang_ausgang
 
             
-def make_dataset():
-    train_list_path=[]
-    test_test_path =[]
-
-    dir_list = os.listdir("./dataset/dataset_simple")
-    for class_dir in dir_list:
-        if class_dir == "fork":
-            class_num = 0
-        elif class_dir == "spoon":
-            class_num = 1
-        elif class_dir == "knife":
-            class_num = 2
-        pic_list = glob.glob("./dataset/dataset_simple"+"/"+class_dir+"/"+"*.jpg")
-        #pic_list = glob.glob("./dataset/dataset_blackandwhite"+"/"+class_dir+"/"+"*.png")
+def daten_laden(datenset):
+    trainings_liste_pfade = []
+    test_liste_pfade = []
+    ordner_liste = os.listdir("./dataset/"+datenset)
+    for klassen_ordner in ordner_liste:
+        if klassen_ordner == "fork":
+            klassen_nummer = 0
+        elif klassen_ordner == "spoon":
+            klassen_nummer = 1
+        elif klassen_ordner == "knife":
+            klassen_nummer = 2
+        bilder_liste = glob.glob("./dataset/"+datenset+"/"+klassen_ordner+"/"+"*.png")
+        #bilder_liste = glob.glob("./dataset/dataset_blackandwhite"+"/"+klassen_ordner+"/"+"*.png")
         i = 0
-        for line in pic_list:
-            string = str(class_num)+","+line[:-4]+",\n"
+        for line in bilder_liste:
+            string = str(klassen_nummer)+","+line[:-4]+",\n"
             if i % 3:
-                train_list_path.append(string)
+                trainings_liste_pfade.append(string)
             else:
-                test_test_path.append(string)
+                test_liste_pfade.append(string)
             i += 1
-    #print("train_list_path",len(train_list_path), train_list_path)
-    #print("test_test_path",len(test_test_path), test_test_path)
-    return train_list_path, test_test_path
-
-    
+    return trainings_liste_pfade, test_liste_pfade
 
 
 if __name__ == "__main__":
+    #datenset = "dataset_real_simple"
+    datenset = "dataset_blackandwhite"
+    trainings_data_liste, test_data_liste = daten_laden(datenset)
 
-    training_data_list,test_data_list = make_dataset()
+    # Definieren der größe des Netzes
+    eingangs_neuronen = 40000 # (40000 = 200x200 )
+    versteckte_neuronen = 8000
+    ausgangs_neuronen = 3 # da wir dreiklassen besitzen
 
-    # number of input, hidden and output nodes
-    input_nodes = 40000
-    hidden_nodes = 8000
-    output_nodes = 3
+    # Lernrate
+    lernrate = 0.01
 
-    # learning rate
-    learning_rate = 0.01
+    # Aufösung für die Bilder berechnen 
+    auflösung = int(math.sqrt(eingangs_neuronen))
 
     # create instance of neural network
-    n = neuralNetwork(input_nodes,hidden_nodes,output_nodes, learning_rate)
+    n = NeuronalesNetz(eingangs_neuronen,versteckte_neuronen,ausgangs_neuronen, lernrate)
 
-    # load the mnist training data CSV file into a list
-    #training_data_file = open("train.csv", 'r')
-    #training_data_list = training_data_file.readlines()
-    #training_data_file.close()
-
-    # train the neural network
-
-
-
-    # epochs is the number of times the training data set is used for training
-    epochs = 50
-
+    # epochen ist die Anzahl wie oft das Netz auf den Trainingsdatensatztrainiert wird
+    epochs = 25
+    print("Training starten")
     for e in range(epochs):
-        # go through all records in the training data set
-        for record in training_data_list:
-            # split the record by the ',' commas
-            all_values = record.split(',')
-            # scale and shift the inputs
-            inputs = cv2.imread(all_values[1]+".jpg",0)
-            inputs = cv2.resize(inputs,(200,200))
-            inputs = inputs.reshape(40000)
+        # einzeln durch alle Einträge der Trainigns
+        for Einträge in trainings_data_liste:
+            # alle Einträge am "," aufteilen
+            alle_Einträge = Einträge.split(",")
+            # größe der Bilderanpassen wenn nötig und von 2D in einen 1D Arraytransformieren
+            eingabe = cv2.imread(alle_Einträge[1]+".png",0)
+            eingabe = cv2.resize(eingabe,(auflösung,auflösung))
+            eingabe = eingabe.reshape(eingangs_neuronen)
             # create the target output values (all 0.01, except the desired label which is 0.99)
-            targets = numpy.zeros(output_nodes) + 0.01
+            ziele = numpy.zeros(ausgangs_neuronen) + 0.01
             # all_values[0] is the target label for this record
-            targets[int(all_values[0])] = 0.99
-            print("training")
-            n.train(inputs, targets)
+            ziele[int(alle_Einträge[0])] = 0.99
+            n.training(eingabe, ziele)
             pass
-        print("Epoche:",e)
-        if e == 10:
-            print(True)
+        print("Epochen:",e)
 
+    # Testen des Neuronalen Netzes
+    # erstellen eines Ergebnissarrays
+    ergebniss_array = []
 
-    # test the neural network
-
-    # scorecard for how well the network performs, initially empty
-    scorecard = []
-
-    # go through all the records in the test data set
-    for record in test_data_list:
-        # split the record by the ',' commas
-        all_values = record.split(',')
-        # correct answer is first value
-        correct_label = int(all_values[0])
+    # durch alle Einträge im testdatensatz gehen
+    for Einträge in test_data_liste:
+        # alle Einträge am "," aufteilen
+        alle_Einträge = Einträge.split(',')
+        # das richtige Ergebniss steht im ersten Ersteneintrag
+        richtes_label = int(alle_Einträge[0])
         # scale and shift the inputs
-        inputs = cv2.imread(all_values[1]+".jpg",0)
-        inputs = cv2.resize(inputs,(200,200))
-        inputs = inputs.reshape(40000)
-        # query the network
-        outputs = n.query(inputs)
-        # the index of the highest value corresponds to the label
-        print(outputs)
-        label = numpy.argmax(outputs)
-        print("label",label)
-        print("correct_label",correct_label)
-        # append correct or incorrect to list
-        if (label == correct_label):
-            # network's answer matches correct answer, add 1 to scorecard
-            scorecard.append(1)
+        eingabe = cv2.imread(alle_Einträge[1]+".png",0)
+        eingabe = cv2.resize(eingabe,(auflösung,auflösung))
+        eingabe = eingabe.reshape(eingangs_neuronen)
+        
+        # Testen des Netzes
+        Ausgabe = n.testen(eingabe)
+        # der eintrag mit dem größen Wert ist das Ergebniss
+        Ausgabe_label = numpy.argmax(Ausgabe)
+        # anfügen einer 0 für falsche Ausgabe und eine 1 bei richtiger Ausgabe
+        if (Ausgabe_label == richtes_label):
+            ergebniss_array.append(1)
         else:
-            # network's answer doesn't match correct answer, add 0 to scorecard
-            scorecard.append(0)
+            ergebniss_array.append(0)
             pass
         pass
 
+    # Berechnen wie oft das Netz richtig lag = Genauigkeit
+    ergebniss_array = numpy.asarray(ergebniss_array)
+    print ("Genuigkeit = ", ergebniss_array.sum() / ergebniss_array.size)
 
-    
+    # kann auch auf eigenen Bildern getestet werden 
+    # normalerweise deaktiviert, wenn sie es testen wollen 
+    # hier auf True stellen und Bild mit dem Namen "test.png" in den Ordner einfügen
+    example = True
 
-    # calculate the performance score, the fraction of correct answers
-    scorecard_array = numpy.asarray(scorecard)
-    print ("performance = ", scorecard_array.sum() / scorecard_array.size)
-
-
-
-
-
-
-    # test the neural network with our own images
-
-    # load image data from png files into an array
-    # unkomment if u wanna see a test img
-
-    #test_img = cv2.imread("test_spoon.jpg",0)
-    #test_img = cv2.resize(test_img,(40,40))
-    #img_data = test_img.reshape(1600)
-    #test_img = cv2.resize(test_img,(200,200))
-    #cv2.imshow("img_img",test_img)
-    #cv2.waitKey(0)
-    #cv2.destroyAllWindows()'
-    #outputs = n.query(img_data)
-    #print(outputs)
-    #label = numpy.argmax(outputs)
-    #label_lookup = {0:"Gabel",1:"Löffel",2:"Messer"}
-    #print("network says ", label_lookup[label])
-
+    if example == True:
+        test_img = cv2.imread("test.png",0)
+        test_img = cv2.resize(test_img,(200,200))
+        img_data = test_img.reshape(eingangs_neuronen)
+        cv2.imshow("img_img",test_img)
+        cv2.waitKey(0)
+        cv2.destroyAllWindows()
+        Ausgabe = n.testen(img_data)
+        label = numpy.argmax(Ausgabe)
+        label_lookup = {0:"Gabel",1:"Löffel",2:"Messer"}
+        print("network says ", label_lookup[label])
     pass
